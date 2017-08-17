@@ -1,0 +1,385 @@
+#!/bin/bash
+
+BLUE="\e[34m"
+GREEN="\e[32m"
+RED="\e[31m"
+YELLOW="\e[33m"
+CLEAN="\e[0m"
+
+GOENV_LATEST_GO="1.8.3"
+
+if [[ ! -d ~/.goenv ]]; then
+	mkdir ~/.goenv
+fi
+
+
+version() {
+	local LOCAL_VERSION="$( cat "$( dirname "${BASH_SOURCE[0]}" )"/../VERSION )"
+	echo -e "Wersja skryptu: ${GREEN}${LOCAL_VERSION}${CLEAN}"
+}
+
+GIT_PREFIX=""
+GIT_POSTFIX=""
+
+show_help() {
+	echo -e "${GREEN}./goenv command [name]${CLEAN}"
+	echo -e "Komendy:"
+	echo -e "   ${YELLOW}getgo version${CLEAN} : sciaga podana wersje Go"
+	echo -e "   ${YELLOW}create name [VERSJA_GO]${CLEAN} : tworzy virtualenva i od razu wchodzi do niego (wchodzi do katalogu, ustawia GOPATH), opcjonalnie mozna wymusic inna niz najnowsza wersje Go"
+	echo -e "   ${YELLOW}use name [VERSJA_GO]${CLEAN} : Wchodzi do virtualenva (wchodzi do katalogu glownego lub projektu - jesli ustawiony, ustawia GOPATH), opcjonalnie mozna wymusic inna niz najnowsza wersje Go"
+	echo -e "   ${YELLOW}exit${CLEAN} : Wychodzi do poprzednio uzywanego katalogu i przywraca zmienne srodowiskowe"
+	echo -e "   ${YELLOW}ls${CLEAN} | ${YELLOW}list${CLEAN} : Listuje virtualenvy"
+	echo -e "   ${YELLOW}rename source destination${CLEAN} : Zmienia nazwe workspace z 'source' na 'destination'"
+	echo -e "   ${YELLOW}rm${CLEAN} | ${YELLOW}remove${CLEAN} : Usuwa katalog virtualenva"
+	echo -e "   ${YELLOW}init project_name${CLEAN} : Sciaga zrodla projektu oraz jego zaleznosci (obslugiwane przez go get), a nastepnie wykonuje 'make deps' danego projektu"
+	echo -e ""
+	echo -e "   ${YELLOW}update${CLEAN} : Uaktualnia goenv (wykonuje git pull w repozytorium skryptu)"
+	echo -e "   ${YELLOW}version${CLEAN} : Wyswietla aktualna wersje"
+	echo -e ""
+}
+
+get_go() {
+	local VERSION="$1"
+	local FORCE="$2"
+
+	if [[ "$1" == "force" ]]; then
+		# specjalny przypadek "goenv getgo force" czyli pobrac na sile najnowsza
+		FORCE="force"
+	fi
+
+	if [[ "$1" == "" || "$1" == "force" ]]; then
+		VERSION=$GOENV_LATEST_GO
+	fi
+
+
+	local GO_URL="https://golang.org/dl/go${VERSION}.linux-amd64.tar.gz"
+
+	# sprawdzamy czy istnieje katalog z wersja
+	if [[ -f ~/.goenv/go/$VERSION/bin/go ]]; then
+		# jesli nie ma force to zwracamy ze ok, jesli nie - usuwamy i lecimy dalej
+		if [[ FORCE != "force" ]]; then
+			return 1
+		fi
+		rm -rf "~/.goenv/go/${VERSION}"
+		if [ $? != 0 ]; then
+			echo -e "${RED}Nie mozna usunac \"~/.goenv/go/${VERSION}\"${CLEAN}"
+			return 0
+		fi
+	fi
+
+	mkdir -p ~/.goenv/go/$VERSION
+
+
+	local GO_FILENAME="go-${VERSION}.tar.gz"
+
+
+	if [[ ! -f ~/.goenv/$GO_FILENAME ]]; then
+		# pobieramy do /tmp, zeby miec pewnosc ze pobralismy poprawny plik zanim przeniesiemy do ~/.goenv/ jako kopia na przyszlosc
+		echo -e "${BLUE}Pobieram ${GO_URL} do ~/.goenv/${GO_FILENAME} ${CLEAN}"
+		wget $GO_URL -O /tmp/$GO_FILENAME --no-check-certificate
+		if [ $? != 0 ]; then
+			echo -e "${RED}Nie udalo sie pobrac ${GO_URL}!${CLEAN}"
+			return 0
+		fi
+
+		echo -e "${BLUE}Przenosze /tmp/${GO_FILENAME} do ~/.goenv/${GO_FILENAME} ${CLEAN}"
+		mv /tmp/$GO_FILENAME ~/.goenv/$GO_FILENAME
+		if [ $? != 0 ]; then
+			echo -e "${RED}Nie udalo sie przeniesc /tmp/${GO_FILENAME} do ~/.goenv/${GO_FILENAME}!${CLEAN}"
+			return 0
+		fi
+	fi
+
+	echo -e "${BLUE}Rozpakowuje plik ~/.goenv/${GO_FILENAME} ${CLEAN}"
+	tar zxf ~/.goenv/$GO_FILENAME --strip=1 -C ~/.goenv/go/${VERSION}
+
+	if [[ ! -f ~/.goenv/go/$VERSION/bin/go ]]; then
+		echo -e "${RED}Nie moglem rozpakowac ~/.goenv/${GO_FILENAME} do ~/.goenv/go/${VERSION}!${CLEAN}"
+		return 0
+	fi
+
+	echo -e "${GREEN}Wersja Go ${VERSION} pomyslnie dodana.${CLEAN}"
+	return 1
+}
+
+backup_env_vars() {
+	if [[ -z "$GOENV_BACKUP_PWD" ]]; then
+		export GOENV_BACKUP_PWD=`pwd`
+	fi
+
+	if [[ -z "$GOENV_BACKUP_GOROOT" ]]; then
+		export GOENV_BACKUP_GOROOT=$GOROOT
+	fi
+
+	if [[ -z "$GOENV_BACKUP_GOPATH" ]]; then
+		export GOENV_BACKUP_GOPATH=$GOPATH
+	fi
+
+	if [[ -z "$GOENV_BACKUP_PATH" ]]; then
+		export GOENV_BACKUP_PATH=$PATH
+	fi
+
+	if [[ -z "$GOENV_BACKUP_PS1" ]]; then
+		export GOENV_BACKUP_PS1=$PS1
+	fi
+}
+
+restore_env_vars() {
+	echo -e "${GREEN}Przywracam zmienne srodowiskowe${CLEAN}"
+
+	if [[ ! -z "$GOENV_BACKUP_GOROOT" ]]; then
+		export GOROOT=$GOENV_BACKUP_GOROOT
+		unset GOENV_BACKUP_GOROOT
+	fi
+
+	if [[ ! -z "$GOENV_BACKUP_GOPATH" ]]; then
+		export GOPATH=$GOENV_BACKUP_GOPATH
+		unset GOENV_BACKUP_GOPATH
+	fi
+
+	if [[ ! -z "$GOENV_BACKUP_PATH" ]]; then
+		export PATH=$GOENV_BACKUP_PATH
+		unset GOENV_BACKUP_PATH
+	fi
+
+	if [[ ! -z "$GOENV_BACKUP_PS1" ]]; then
+		export PS1=$GOENV_BACKUP_PS1
+		unset GOENV_BACKUP_PS1
+	fi
+
+	if [[ ! -z "$GOENV_BACKUP_PWD" ]]; then
+		cd $GOENV_BACKUP_PWD
+		unset GOENV_BACKUP_PWD
+	fi
+
+	unset GOBIN
+	unset GOENV_IN
+}
+
+create_venv() {
+	if [ ! -d "$GOENV_WORKSPACE/$1" ]; then
+		mkdir -p "$GOENV_WORKSPACE/$1"
+
+		if [ $? != 0 ]; then
+			echo -e "${RED}Nie mozna stworzyc \"$GOENV_WORKSPACE/$1\"${CLEAN}"
+			return
+		fi
+
+		echo -e "${BLUE}Stworzylem folder $GOENV_WORKSPACE/$1 ${CLEAN}"
+	fi
+
+	use_venv $1 $2
+}
+
+use_venv() {
+	if [ ! -d "$GOENV_WORKSPACE/$1" ]; then
+		echo -e "${RED}Folder dla workspace $1 nie istnieje!${CLEAN}"
+		return
+	fi
+
+	# domyslnie korzystamy z najnowszej wersji
+	local GO_VER=$GOENV_LATEST_GO
+
+	# jesli wersja jest zapamietana w pliku to wymuszamy ja
+	if [[ -f ${GOENV_WORKSPACE}/${1}/.go_version ]]; then
+		local GO_VERSION=`cat ${GOENV_WORKSPACE}/${1}/.go_version | tr -d ' ' | tr -d '\n'`
+		if [[ "$GO_VERSION" != "" ]]; then
+			GO_VER=$GO_VERSION
+		fi
+	fi
+
+	# jesli jednak ktos podal ja w parametrze to nadpisujemy ta z pliku
+	if [[ $2 != "" ]]; then
+		GO_VER=$2
+	fi
+
+	if get_go $2 force; then
+		echo -e "${RED}Nie mozna stworzyc \"${1}\" - blad podczas pobierania Go ${GO_VER}${CLEAN}"
+		return
+	fi
+
+	# pobralo sie pomyslnie, wiec wpisujemy ja do pliku
+	echo -e "${YELLOW}Wersja Go dla projektu: ${GO_VER} ${CLEAN}"
+	if [[ $2 != "" ]]; then
+		echo $GO_VER > ${GOENV_WORKSPACE}/${1}/.go_version
+	fi
+
+	backup_env_vars
+
+	local ENTER_DIR="${GOENV_WORKSPACE}/${1}"
+
+	# jesli projekt zainicjowany to wchodzimy bezposrednio do katalogu projektu
+	if [ -f ${GOENV_WORKSPACE}/${1}/.project_name ]; then
+		project_name=`cat ${GOENV_WORKSPACE}/${1}/.project_name | tr -d ' ' | tr -d '\n'`
+		if [ project_name == "" ]; then
+			echo -e "${RED}Plik ${GOENV_WORKSPACE}/${1}/.project_name JEST PUSTY - nie powinno sie zdarzyc! ${CLEAN}"
+		fi
+
+		ENTER_DIR="${GOENV_WORKSPACE}/${1}/src/${project_name}"
+	fi
+
+	cd "${ENTER_DIR}"
+	if [ $? != 0 ]; then
+		echo -e "${RED}Nie moge wejsc do katalogu \"${GOENV_WORKSPACE}/${1}\"${CLEAN}"
+		return
+	fi
+
+	echo -e "${GREEN}Wchodze do katalogu \"${GOENV_WORKSPACE}/${1}\"${CLEAN}"
+
+	# a bo ja chce miec sffuj PS1!:P
+	# np w `~/.bashrc` jak ktos nie lubi kolorkow, dlugich form, i czuje sie przyzwyczajony do swojego PS1:
+	#   export GOENV_PS1="GO:<name> \u@\h:\W\$ "
+	if [ -z "${GOENV_PS1}" ]
+	then
+		export GOENV_PS1="\[${YELLOW}\](GO:<name>)\[${CLEAN}\] $GOENV_BACKUP_PS1"
+	fi
+
+	export PS1=${GOENV_PS1//<name>/${1}}
+	export GOROOT="${HOME}/.goenv/go/$GO_VER"
+	export GOPATH="$GOENV_WORKSPACE/$1"
+	export PATH="$GOROOT/bin:$GOENV_WORKSPACE/$1/bin:$GOENV_BACKUP_PATH"
+	export GOBIN="$GOENV_WORKSPACE/$1/bin"
+	export GOENV_IN="$1"
+}
+
+list_venvs() {
+	echo -e "${BLUE}Lista projektow:${CLEAN}"
+
+	for DIR in `ls --color=never --time-style="long-iso" -l $GOENV_WORKSPACE | egrep '^d' | awk '{print \$8}' | sed 's/\/$//'`; do
+		local AD1=""
+		if [[ -f $GOENV_WORKSPACE/$DIR/.project_name ]]; then
+			AD1="${CLEAN}(Projekt: ${YELLOW}`cat ${GOENV_WORKSPACE}/$DIR/.project_name | tr -d ' ' | tr -d '\n'`${CLEAN})"
+		fi
+
+		local AD2=""
+		if [[ -f $GOENV_WORKSPACE/$DIR/.go_version ]]; then
+			AD2="${CLEAN}(Go ${RED}`cat ${GOENV_WORKSPACE}/$DIR/.go_version | tr -d ' ' | tr -d '\n'`${CLEAN})"
+		else
+			AD2="${CLEAN}(Go ${RED}${GOENV_LATEST_GO}${CLEAN})"
+		fi
+
+		echo -e "   ${GREEN}${DIR} ${AD1} ${AD2}${CLEAN}"
+	done
+}
+
+remove_venv() {
+	for DIR in `ls --color=never --time-style="long-iso" -l $GOENV_WORKSPACE | egrep '^d' | awk '{print \$8}' | sed 's/\/$//'`; do
+		if [ "$1" == "$DIR" ]; then
+			if [ "$GOENV_IN" == "$1" ]; then
+				restore_env_vars
+			fi
+
+			rm -Rf "$GOENV_WORKSPACE/$1"
+
+			if [ $? != 0 ]; then
+				echo -e "${RED}Nie mozna usunac \"$GOENV_WORKSPACE/$1\" !${CLEAN}"
+				return
+			fi
+
+			echo -e "${GREEN}Usunalem virtualenva $1${CLEAN}"
+
+			return
+		fi
+	done
+
+	echo -e "${RED}Virtualenv \"$1\" nie istnieje...${CLEAN}"
+}
+
+init_project() {
+	if [[ -z "$GOENV_IN" ]]; then
+		echo -e "${YELLOW}Musisz byc w aktywnym virtualenvie!${CLEAN}"
+	else
+		echo -e "${BLUE}Pobieram zrodla dla ${1} do katalogu ${2}: ${CLEAN}"
+
+		# OPCJA 1: pobieramy go getem -> niech on zaleznosci ssie
+		# echo "go get -v -d -t ${1}"
+		# go get -d -t ${1}
+
+		echo "git clone ${1} src/${2}"
+		# return
+		# mkdir -p ${GOENV_WORKSPACE}/${GOENV_IN}/src/${1}
+		git clone ${1} ${GOENV_WORKSPACE}/${GOENV_IN}/src/${2}
+		echo -e "${GREEN}Pobralem zrodla dla ${1} ${CLEAN}"
+		echo $2 > ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name
+		echo
+		use_deps $2
+	fi
+}
+
+use_deps() {
+	if [ -f ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name ]; then
+		project_name=`cat ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name | tr -d ' ' | tr -d '\n'`
+		if [ project_name == "" ]; then
+			echo -e "${RED}Plik ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name JEST PUSTY - nie powinno sie zdarzyc! ${CLEAN}"
+		fi
+
+		project_dir="${GOENV_WORKSPACE}/${GOENV_IN}/src/${project_name}"
+		cd ${project_dir}
+		if [ $? != 0 ]; then
+			echo -e "${RED}Nie mozna wejsc do katalogu \"${project_dir}\"${CLEAN}"
+			return
+		fi
+	else
+	   echo -e "${RED}Plik ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name NIE ISTNIEJE - nie powinno sie zdarzyc! ${CLEAN}"
+	fi
+}
+
+rename_venv() {
+	restore_env_vars
+	# czy NIE istnieje pierwszy
+	if [ ! -d "$GOENV_WORKSPACE/$1" ]; then
+		echo -e "${RED}Folder dla zrodlowego workspace '$1' nie istnieje!${CLEAN}"
+		return
+	fi
+
+	# czy istnieje drugi
+	if [ -d "$GOENV_WORKSPACE/$2" ]; then
+		echo -e "${RED}Folder dla docelowego workspace '$2' istnieje!${CLEAN}"
+		return
+	fi
+
+	echo -e "${BLUE}Zmieniam nazwe workspace '${1}' -> '${2}'"
+	mv $GOENV_WORKSPACE/$1 $GOENV_WORKSPACE/$2
+	if [ $? != 0 ]; then
+		echo -e "${RED}Blad podczas zmiany nazwy workspace '${1}' -> '${2}'${CLEAN}"
+		return
+	fi
+	echo -e "${GREEN}Zmieniono nazwe workspace '${1}' -> '${2}'"
+}
+
+if [[ -z "$GOENV_WORKSPACE" ]]; then
+	echo -e "${RED}Zmienna GOENV_WORKSPACE nie jest ustawiona. Przyklad: export GOENV_WORKSPACE=~/goworkspace (dodaj do .bashrc !)${CLEAN}"
+else
+	case "$1" in
+		"getgo")
+			get_go "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			;;
+		"create")
+			create_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			;;
+		"use")
+			use_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			;;
+		"rename")
+			rename_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			;;
+		"exit")
+			restore_env_vars
+			;;
+		"version")
+			version
+			;;
+		"ls" | "list")
+			list_venvs
+			;;
+		"remove" | "rm")
+			remove_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')"
+			;;
+		"init")
+			init_project $2 `echo $2 | sed -e "s/^https:\/\///" -e "s/\.git$//"` #"$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			;;
+		*)
+			show_help
+			;;
+	esac
+fi
