@@ -31,7 +31,7 @@ show_help() {
 	echo -e "   ${YELLOW}ls${CLEAN} | ${YELLOW}list${CLEAN} : Listuje virtualenvy"
 	echo -e "   ${YELLOW}rename source destination${CLEAN} : Zmienia nazwe workspace z 'source' na 'destination'"
 	echo -e "   ${YELLOW}rm${CLEAN} | ${YELLOW}remove${CLEAN} : Usuwa katalog virtualenva"
-	echo -e "   ${YELLOW}init project_name${CLEAN} : Sciaga zrodla projektu oraz jego zaleznosci (obslugiwane przez go get), a nastepnie wykonuje 'make deps' danego projektu"
+	echo -e "   ${YELLOW}init HTTP_URL${CLEAN} : Sciaga zrodla projektu oraz jego zaleznosci (obslugiwane przez go get), np: goenv init https://github.com/mieczkowski/goenv"
 	echo -e ""
 	echo -e "   ${YELLOW}update${CLEAN} : Uaktualnia goenv (wykonuje git pull w repozytorium skryptu)"
 	echo -e "   ${YELLOW}version${CLEAN} : Wyswietla aktualna wersje"
