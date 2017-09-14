@@ -6,7 +6,7 @@ RED="\e[31m"
 YELLOW="\e[33m"
 CLEAN="\e[0m"
 
-GOENV_LATEST_GO="1.8.3"
+GOENV_LATEST_GO="1.9"
 
 if [[ ! -d ~/.goenv ]]; then
 	mkdir ~/.goenv
