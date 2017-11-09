@@ -35,6 +35,7 @@ show_help() {
 	echo -e ""
 	echo -e "   ${YELLOW}update${CLEAN} : Uaktualnia goenv (wykonuje git pull w repozytorium skryptu)"
 	echo -e "   ${YELLOW}version${CLEAN} : Wyswietla aktualna wersje"
+	echo -e "   ${YELLOW}util${CLEAN} : Instalacja podstawowych tooli i bibliotek"
 	echo -e ""
 	echo -e "Instalacja i dokumentacja: ${GREEN}https://git.dcwp.pl/newhope/goenv/blob/master/README.md${CLEAN}"
 	echo -e ""
@@ -287,6 +288,24 @@ remove_venv() {
 	echo -e "${RED}Virtualenv \"$1\" nie istnieje...${CLEAN}"
 }
 
+install_util() {
+	if [[ -z "$GOENV_IN" ]]; then
+		echo -e "${YELLOW}Musisz byc w aktywnym virtualenvie!${CLEAN}"
+	else
+		case "$1" in
+			"govendor")
+				go get -v -u github.com/kardianos/govendor;;
+			"testify")
+				govendor fetch github.com/stretchr/testify/require;;
+			"errors")
+				govendor fetch github.com/pkg/errors;;
+			*)
+				echo "Wybierz tool: govendor, testify, errors"
+				;;
+		esac
+	fi
+}
+
 init_project() {
 	if [[ -z "$GOENV_IN" ]]; then
 		echo -e "${YELLOW}Musisz byc w aktywnym virtualenvie!${CLEAN}"
@@ -393,13 +412,16 @@ else
 			remove_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')"
 			;;
 		"init")
-			init_project $2 #"$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			init_project $2
+			;;
+		"util")
+			install_util $2
 			;;
 		"envs")
 			echo `ls $GOENV_WORKSPACE`
 			;;
 		"commands")
-			echo "getgo create use rename exit version ls list remove rm init"
+			echo "getgo create use rename exit version ls list remove rm init util"
 			;;
 		*)
 			show_help
