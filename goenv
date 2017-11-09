@@ -6,7 +6,7 @@ RED="\e[31m"
 YELLOW="\e[33m"
 CLEAN="\e[0m"
 
-GOENV_LATEST_GO="1.9"
+GOENV_LATEST_GO="1.9.2"
 
 if [[ ! -d ~/.goenv ]]; then
 	mkdir ~/.goenv
@@ -31,10 +31,12 @@ show_help() {
 	echo -e "   ${YELLOW}ls${CLEAN} | ${YELLOW}list${CLEAN} : Listuje virtualenvy"
 	echo -e "   ${YELLOW}rename source destination${CLEAN} : Zmienia nazwe workspace z 'source' na 'destination'"
 	echo -e "   ${YELLOW}rm${CLEAN} | ${YELLOW}remove${CLEAN} : Usuwa katalog virtualenva"
-	echo -e "   ${YELLOW}init HTTP_URL${CLEAN} : Sciaga zrodla projektu oraz jego zaleznosci (obslugiwane przez go get), np: goenv init https://github.com/mieczkowski/goenv"
+	echo -e "   ${YELLOW}init project_name${CLEAN} : Sciaga zrodla projektu oraz jego zaleznosci (obslugiwane przez go get), a nastepnie wykonuje 'make deps' danego projektu"
 	echo -e ""
 	echo -e "   ${YELLOW}update${CLEAN} : Uaktualnia goenv (wykonuje git pull w repozytorium skryptu)"
 	echo -e "   ${YELLOW}version${CLEAN} : Wyswietla aktualna wersje"
+	echo -e ""
+	echo -e "Instalacja i dokumentacja: ${GREEN}https://git.dcwp.pl/newhope/goenv/blob/master/README.md${CLEAN}"
 	echo -e ""
 }
 
@@ -291,18 +293,33 @@ init_project() {
 	else
 		echo -e "${BLUE}Pobieram zrodla dla ${1} do katalogu ${2}: ${CLEAN}"
 
-		# OPCJA 1: pobieramy go getem -> niech on zaleznosci ssie
-		# echo "go get -v -d -t ${1}"
-		# go get -d -t ${1}
+		local url
+		local path
+		char="/"
+		if [[ ${1} == "https://github.com"* ]]; then
+			url=${1}
+			path=`echo ${1} | sed -e "s/^https:\/\///" -e "s/\.git$//"`
+			echo "URL! ${url} ${path}"
+		elif [[ ${1} == "git@github.com:"* ]];then
+			# git@github.com:cloud-pi/golock.git
+			url=${1}
+			path=`echo ${1} | sed -e "s/^git@//" -e "s/\.git$//"`
+			path=${path/://}
+			echo "SSH! ${url} ${path}"
+		elif [[ `echo "${1}" | awk -F"${char}" '{print NF-1}'` == "1" ]]; then
+			url="https://github.com/${1}.git"
+			path="github.com/${1}"
+		fi
 
-		echo "git clone ${1} src/${2}"
-		# return
-		# mkdir -p ${GOENV_WORKSPACE}/${GOENV_IN}/src/${1}
-		git clone ${1} ${GOENV_WORKSPACE}/${GOENV_IN}/src/${2}
-		echo -e "${GREEN}Pobralem zrodla dla ${1} ${CLEAN}"
-		echo $2 > ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name
-		echo
-		use_deps $2
+		echo "git clone ${url} src/${path}"
+		git clone ${url} ${GOENV_WORKSPACE}/${GOENV_IN}/src/${path}
+		clone_result=$?
+		if [ $clone_result -eq 0 ]; then
+			echo -e "${GREEN}Pobralem zrodla dla ${path} ${CLEAN}"
+			echo $path > ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name
+			echo
+			use_deps $path
+		fi
 	fi
 }
 
@@ -376,7 +393,13 @@ else
 			remove_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')"
 			;;
 		"init")
-			init_project $2 `echo $2 | sed -e "s/^https:\/\///" -e "s/\.git$//"` #"$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			init_project $2 #"$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+			;;
+		"envs")
+			echo `ls $GOENV_WORKSPACE`
+			;;
+		"commands")
+			echo "getgo create use rename exit version ls list remove rm init"
 			;;
 		*)
 			show_help
