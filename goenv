@@ -299,8 +299,11 @@ install_util() {
 				govendor fetch github.com/stretchr/testify/require;;
 			"errors")
 				govendor fetch github.com/pkg/errors;;
+			"mockery")
+				govendor fetch -v github.com/stretchr/testify/mock
+				go get -v -u github.com/vektra/mockery/mockery github.com/vektra/mockery/cmd/mockery;;
 			*)
-				echo "Wybierz tool: govendor, testify, errors"
+				echo "Wybierz tool: govendor, testify, errors, mockery"
 				;;
 		esac
 	fi
