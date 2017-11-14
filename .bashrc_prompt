@@ -1,0 +1,52 @@
+#!/bin/bash
+
+set_prompt(){
+   local last_cmd=$?
+   local txtreset='$(tput sgr0)'
+   local txtbold='$(tput bold)'
+   local txtblack='$(tput setaf 0)'
+   local txtred='$(tput setaf 1)'
+   local txtgreen='$(tput setaf 2)'
+   local txtyellow='$(tput setaf 3)'
+   local txtblue='$(tput setaf 4)'
+   local txtpurple='$(tput setaf 5)'
+   local txtcyan='$(tput setaf 6)'
+   local txtwhite='$(tput setaf 7)'
+   # unicode "✗"
+   local fancyx='\342\234\227'
+   # unicode "✓"
+   local checkmark='\342\234\223'
+   # Line 1: Full date + full time (24h)
+   PS1="\n\[$txtbold\]\[$txtyellow\]\D{%H:%M:%S} "
+   if [[ $last_cmd == 0 ]]; then
+      PS1+="\[$txtgreen\]($checkmark \[$txtwhite\]0)"
+   else
+      PS1+="\[$txtred\]($fancyx \[$txtwhite\]$last_cmd)"
+   fi
+   PS1+=" "
+   # User color: red for root, yellow for others
+   if [[ $EUID == 0 ]]; then
+       PS1+="\[$txtred\]"
+   else
+       PS1+="\[$txtgreen\]"
+   fi
+   # user@host
+   PS1+="\u@\h \[$txtblue\]$PWD"
+   # git branch
+   PS1+="\[$txtgreen\]$(__git_ps1 ' (%s)')\n"
+   
+   # if in goenv - put it in new line
+   if [ ! -z "$GOENV_IN" ]; then
+      PS1+="\[$txtreset\]\[$txtyellow\](GO:$GOENV_IN) \[$txtbold\]"
+   fi
+
+   # $ for user, # for root
+   if [[ $EUID == 0 ]]; then
+       PS1+="\[$txtred\]# "
+   else
+       PS1+="\[$txtwhite\]\$ "
+   fi
+   PS1+="\[$txtreset\]"
+}
+
+PROMPT_COMMAND='set_prompt'
