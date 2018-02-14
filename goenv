@@ -1,113 +1,268 @@
 #!/bin/bash
 
-BLUE="\e[34m"
-GREEN="\e[32m"
-RED="\e[31m"
-YELLOW="\e[33m"
-CLEAN="\e[0m"
+BLUE="$(tput setaf 4)"
+GREEN="$(tput setaf 2)"
+RED="$(tput setaf 1)"
+YELLOW="$(tput setaf 3)"
+CLEAN="$(tput sgr0)"
+PURPLE="$(tput setaf 5)"
+CYAN="$(tput setaf 6)"
 
-GOENV_LATEST_GO="1.9.2"
+GOENV_DIR="${HOME}/.goenv"
 
-if [[ ! -d ~/.goenv ]]; then
-	mkdir ~/.goenv
-fi
+DEFAULT_PYTHON_VERSION="3"
+DEFAULT_GOLANG_VERSION="latest"
 
-
-version() {
-	local LOCAL_VERSION="$( cat "$( dirname "${BASH_SOURCE[0]}" )"/../VERSION )"
-	echo -e "Wersja skryptu: ${GREEN}${LOCAL_VERSION}${CLEAN}"
+print_version() {
+    local version="1.0.0"
+    echo -e "GoENV version: ${GREEN}${version}${CLEAN}"
 }
 
-GIT_PREFIX=""
-GIT_POSTFIX=""
+print_usage() {
+    local extended=$1
+    echo -e "Description:
+    GoENV is project (directory) manager, with Golang and Python support. It is a combination of features from tools like: direnv, gvm, pyenv, etc.
+    "
+    if [[ ! -z $extended ]]; then
+    echo -e "Configuration:
+    Script must have access to shell. You need to add line to ~/.bashrc, for example:
+        ${YELLOW}alias goenv=\". /path/to/goenv\"${CLEAN}
+    You need to set workspace directory (where your projects will be created):
+        ${YELLOW}export GOENV_WORKSPACE=~/my_projects${CLEAN}
 
-show_help() {
-	echo -e "${GREEN}./goenv command [name]${CLEAN}"
-	echo -e "Komendy:"
-	echo -e "   ${YELLOW}getgo version${CLEAN} : sciaga podana wersje Go"
-	echo -e "   ${YELLOW}create name [VERSJA_GO]${CLEAN} : tworzy virtualenva i od razu wchodzi do niego (wchodzi do katalogu, ustawia GOPATH), opcjonalnie mozna wymusic inna niz najnowsza wersje Go"
-	echo -e "   ${YELLOW}use name [VERSJA_GO]${CLEAN} : Wchodzi do virtualenva (wchodzi do katalogu glownego lub projektu - jesli ustawiony, ustawia GOPATH), opcjonalnie mozna wymusic inna niz najnowsza wersje Go"
-	echo -e "   ${YELLOW}exit${CLEAN} : Wychodzi do poprzednio uzywanego katalogu i przywraca zmienne srodowiskowe"
-	echo -e "   ${YELLOW}ls${CLEAN} | ${YELLOW}list${CLEAN} : Listuje virtualenvy"
-	echo -e "   ${YELLOW}rename source destination${CLEAN} : Zmienia nazwe workspace z 'source' na 'destination'"
-	echo -e "   ${YELLOW}rm${CLEAN} | ${YELLOW}remove${CLEAN} : Usuwa katalog virtualenva"
-	echo -e "   ${YELLOW}init project_name${CLEAN} : Sciaga zrodla projektu oraz jego zaleznosci (obslugiwane przez go get), a nastepnie wykonuje 'make deps' danego projektu"
-	echo -e ""
-	echo -e "   ${YELLOW}update${CLEAN} : Uaktualnia goenv (wykonuje git pull w repozytorium skryptu)"
-	echo -e "   ${YELLOW}version${CLEAN} : Wyswietla aktualna wersje"
-	echo -e "   ${YELLOW}util${CLEAN} : Instalacja podstawowych tooli i bibliotek"
-	echo -e ""
-	echo -e "Instalacja i dokumentacja: ${GREEN}https://git.dcwp.pl/newhope/goenv/blob/master/README.md${CLEAN}"
-	echo -e ""
+Prompt:
+    Goenv by default will try to update your ${RED}PS1${CLEAN} with prefix, for example: ${YELLOW}(test Go:1.10rc1 Py:3.5.2)${CLEAN}
+    You can disable it by adding to your ~/.bashrc:
+        ${YELLOW}export GOENV_DISABLE_PS1=\"1\"${CLEAN}
+    
+    You can use following enviroment variables to build your own goenv prompt:
+        ${YELLOW}\$GOENV_PROJECT         project name${CLEAN}
+        ${YELLOW}\$GOENV_GO_VERSION      golang version (if used in project)${CLEAN}
+        ${YELLOW}\$GOENV_PYTHON_VERSION  python version (if used in project)${CLEAN}
+    
+    Example fragment set_prompt function (used with PROMPT_COMMAND):
+        ${YELLOW}set_prompt(){
+            PS1=\"\"
+            if [[ ! -z \"\$GOENV_PROJECT\" ]]; then
+                PS1+=\"(\$GOENV_PROJECT\"
+                if [[ ! -z \"\$GOENV_GO_VERSION\" ]]; then
+                    PS1+=\" Go:\$GOENV_GO_VERSION\"
+                fi
+                if [[ ! -z \"\$GOENV_PYTHON_VERSION\" ]]; then
+                    PS1+=\" Py:\$GOENV_PYTHON_VERSION\"
+                fi
+                PS1+=\") \"
+            fi
+            PS1+=\"(\\d \\\t) (\\u@\\h:\\w) \"
+        }
+        PROMPT_COMMAND='set_prompt'${CLEAN}
+    "
+    fi
+
+# TODO in init command:  
+# ${GREEN}--run_script[=path/to/file]${CLEAN}  path to script, which is run after enter project (for example: --run_script=\"start_ipython.sh\")
+# ${GREEN}--exit_script[=path/to/file]${CLEAN} path to script, which is run after leaving project (for example: --exit_script=\"tools/container_stop.sh\")
+
+echo -e "Commands:
+    ${YELLOW}create [project_name] {params}${CLEAN} create new project and (optional) init lang support:
+                                    ${GREEN}--golang[=version]${CLEAN}  fetch/use go (${PURPLE}default: latest stable${CLEAN})
+                                    ${GREEN}--python[=version]${CLEAN}  create virtualenv with specific python version (${PURPLE}default: 3${CLEAN})
+                                    ${GREEN}--force${CLEAN}             for recreate existing python virtualenv
+
+    ${YELLOW}use [project_name]${CLEAN}             activate project (activate virtualenv and/or set environment variables)
+
+    ${YELLOW}set {options}${CLEAN}                  set various settings for project:
+                                    ${GREEN}--directory[=relative/path/to/dir]${CLEAN}  default directory to enter after activation (empty to clear) 
+                                        example: --directory=\"src/github.com/mieczkowski/goenv\")
+
+    ${YELLOW}init {init_params}${CLEAN}             add lang support in project, or change version (${YELLOW}params${CLEAN} from ${YELLOW}create${CLEAN} command)
+    ${YELLOW}exit${CLEAN}                           deactivate project
+
+    ${YELLOW}ls${CLEAN}                             list projects
+    ${YELLOW}rename [source] [destination]${CLEAN}  rename project
+    ${YELLOW}rm [project_name]${CLEAN}              deactivate project and remove it
+
+    ${YELLOW}golang${CLEAN}                         tools for golang (list available Go versions, install common software)
+                                    ${GREEN}list${CLEAN}          list available golang versions (can be used with ${YELLOW}--golang${CLEAN} in ${YELLOW}create/init${CLEAN} command)
+                                    ${GREEN}init [param]${CLEAN}  clone/fetch repository and put it to right directory. Param can be in one of three formats:
+                                        ${CYAN}https://github.com/mieczkowski/goenv.git${CLEAN} - git clone with http
+                                        ${CYAN}git@github.com:mieczkowski/goenv.git${CLEAN}     - git clone with ssh
+                                        ${CYAN}mieczkowski/goenv${CLEAN}                        - clone from github (http by default, --ssh to force ssh)
+                                    
+
+    ${YELLOW}version${CLEAN}                        print the goenv version number
+    ${YELLOW}help${CLEAN}                           print ${PURPLE}extended help${CLEAN} help"
 }
 
-get_go() {
-	local VERSION="$1"
-	local FORCE="$2"
+###################### UTILS
 
-	if [[ "$1" == "force" ]]; then
-		# specjalny przypadek "goenv getgo force" czyli pobrac na sile najnowsza
-		FORCE="force"
-	fi
+golang_download_version() {
+    local version=$1
+    local url="https://golang.org/dl/go${version}.linux-amd64.tar.gz"
 
-	if [[ "$1" == "" || "$1" == "force" ]]; then
-		VERSION=$GOENV_LATEST_GO
-	fi
+    # if version already fetched - nothing to do...
+    if [[ -d $GOENV_DIR/go/$version && -f $GOENV_DIR/go/$version/bin/go ]]; then
+        return 0
+    fi
 
+    if [[ -z $version ]]; then
+        echo -e "${RED}Empty golang version!${CLEAN}"
+        return 1
+    fi
 
-	local GO_URL="https://golang.org/dl/go${VERSION}.linux-amd64.tar.gz"
-
-	# sprawdzamy czy istnieje katalog z wersja
-	if [[ -f ~/.goenv/go/$VERSION/bin/go ]]; then
-		# jesli nie ma force to zwracamy ze ok, jesli nie - usuwamy i lecimy dalej
-		if [[ FORCE != "force" ]]; then
+    local archiveName="go-${version}.tar.gz"
+    if [[ ! -f $GOENV_DIR/tmp/$archiveName ]]; then
+        echo "Downloading golang (${version}) ..."
+        wget $url -O /tmp/$archiveName -c --no-check-certificate
+		if [ $? != 0 ]; then
+			echo -e "${RED}Can not download ${url} to ${archiveName}!${CLEAN}"
 			return 1
 		fi
-		rm -rf "~/.goenv/go/${VERSION}"
-		if [ $? != 0 ]; then
-			echo -e "${RED}Nie mozna usunac \"~/.goenv/go/${VERSION}\"${CLEAN}"
-			return 0
+         mkdir -p $GOENV_DIR/tmp
+        if [[ $? != 0 ]]; then 
+            echo -e "${RED}Can not create directory for tmp files: $GOENV_DIR/tmp${CLEAN}"
+            return 1
+        fi
+        mv /tmp/$archiveName $GOENV_DIR/tmp/$archiveName
+        if [ $? != 0 ]; then
+			echo -e "${RED}Can not move file /tmp/$archiveName to $GOENV_DIR/tmp/$archiveName!${CLEAN}"
+			return 1
 		fi
-	fi
+    fi
 
-	mkdir -p ~/.goenv/go/$VERSION
+    mkdir -p $GOENV_DIR/go/$version
+    if [[ $? != 0 ]]; then 
+        echo -e "${RED}Can not create directory for golang: $GOENV_DIR/go/$version${CLEAN}"
+        return 1
+    fi
 
-
-	local GO_FILENAME="go-${VERSION}.tar.gz"
-
-
-	if [[ ! -f ~/.goenv/$GO_FILENAME ]]; then
-		# pobieramy do /tmp, zeby miec pewnosc ze pobralismy poprawny plik zanim przeniesiemy do ~/.goenv/ jako kopia na przyszlosc
-		echo -e "${BLUE}Pobieram ${GO_URL} do ~/.goenv/${GO_FILENAME} ${CLEAN}"
-		wget $GO_URL -O /tmp/$GO_FILENAME --no-check-certificate
-		if [ $? != 0 ]; then
-			echo -e "${RED}Nie udalo sie pobrac ${GO_URL}!${CLEAN}"
-			return 0
-		fi
-
-		echo -e "${BLUE}Przenosze /tmp/${GO_FILENAME} do ~/.goenv/${GO_FILENAME} ${CLEAN}"
-		mv /tmp/$GO_FILENAME ~/.goenv/$GO_FILENAME
-		if [ $? != 0 ]; then
-			echo -e "${RED}Nie udalo sie przeniesc /tmp/${GO_FILENAME} do ~/.goenv/${GO_FILENAME}!${CLEAN}"
-			return 0
-		fi
-	fi
-
-	echo -e "${BLUE}Rozpakowuje plik ~/.goenv/${GO_FILENAME} ${CLEAN}"
-	tar zxf ~/.goenv/$GO_FILENAME --strip=1 -C ~/.goenv/go/${VERSION}
-
-	if [[ ! -f ~/.goenv/go/$VERSION/bin/go ]]; then
-		echo -e "${RED}Nie moglem rozpakowac ~/.goenv/${GO_FILENAME} do ~/.goenv/go/${VERSION}!${CLEAN}"
-		return 0
-	fi
-
-	echo -e "${GREEN}Wersja Go ${VERSION} pomyslnie dodana.${CLEAN}"
-	return 1
+    echo "Unpacking archive to ${GOENV_DIR}/go/${version} ..."
+   
+    tar zxf $GOENV_DIR/tmp/$archiveName --strip=1 -C ${GOENV_DIR}/go/${version}
+    if [ $? != 0 ]; then
+        echo -e "${RED}Can not extract ${url} to ${archiveName}!${CLEAN}"
+        return 1
+    fi
 }
 
-backup_env_vars() {
+golang_get_latest_version() {
+    local golang_latest=`curl -s https://golang.org/dl/ | grep 'download.*downloadBox' | grep -o 'https.*linux.*gz' | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`
+    if [[ -z $golang_latest ]]; then 
+        echo -e "${RED}Can not fetch latest go version!${CLEAN}"
+        return 1
+    fi
+    echo $golang_latest
+}
+
+###################### COMMANDS HANDLERS
+
+command_init() {
+    local project_name="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    shift
+    local golang_enable=""
+    local golang_version=""
+    local python_enable=""
+    local python_version=""
+    local force=""
+    for param in "$@"; do
+        case $param in
+            --golang=*|"--golang")
+                golang_enable="1"
+                golang_version="${param#*=}"
+                [[ $golang_version == $param || -z $golang_version ]] && golang_version=$DEFAULT_GOLANG_VERSION
+                ;;
+            --python=*|"--python")
+                python_enable="1"
+                python_version="${param#*=}"
+                [[ $python_version == $param || -z $python_version ]] && python_version=$DEFAULT_PYTHON_VERSION
+                if [[ $python_version != "2" && $python_version != "3" ]]; then
+                    echo -e "${RED}Python version must be 2 or 3!${CLEAN}"
+                    return 1
+                fi
+                ;;
+            "--force")
+                force="1"
+                ;;
+        esac
+    done
+
+    if [[ $golang_enable == "1" ]]; then
+        if [[ $golang_version == "latest" ]]; then
+            golang_version=`golang_get_latest_version`
+            if [[ $? != 0 ]]; then 
+                return 1
+            fi
+        fi
+
+        if ! golang_download_version $golang_version; then 
+            return 1
+        fi
+
+        if [[ ! -d $GOENV_WORKSPACE/$project_name/.goenv ]]; then
+            if ! mkdir -p $GOENV_WORKSPACE/$project_name/.goenv; then
+                echo -e "${RED}Can not create $GOENV_WORKSPACE/$project_name/.goenv directory!${CLEAN}"
+                return 1
+            fi
+        fi
+
+        if ! echo "$golang_version" > $GOENV_WORKSPACE/$project_name/.goenv/golang.version; then 
+            echo -e "${RED}Can not create write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
+            return 1
+        fi
+    fi
+
+    if [[ $python_enable == "1" ]]; then
+        if [[ ! -d $GOENV_WORKSPACE/$project_name/.goenv ]]; then
+            if ! mkdir -p $GOENV_WORKSPACE/$project_name/.goenv; then
+                echo -e "${RED}Can not create $GOENV_WORKSPACE/$project_name/.goenv directory!${CLEAN}"
+                return 1
+            fi
+        fi
+        if ! command -v virtualenv >/dev/null 2>&1; then
+            echo -e "${RED}Virtualenv not found!${CLEAN}"
+            echo -e "Install virtualenv (${YELLOW}apt-get install virtualenv${CLEAN}) and init python in activated project: ${YELLOW}goenv init --python${CLEAN}"
+            return 1
+        fi
+        local python_bin="python${python_version}"
+        if ! command -v $python_bin >/dev/null 2>&1; then
+            echo -e "${RED}$python_bin not found!${CLEAN}"
+            echo -e "Install $python_bin (${YELLOW}apt-get install $python_bin${CLEAN}) and init python in activated project: ${YELLOW}goenv init --python=$python_version${CLEAN}"
+            return 1
+        fi
+
+        if [[ -d $GOENV_WORKSPACE/$project_name/.goenv/pythonenv ]]; then
+            # if --force is set -> clear virtualenv and recreate it, otherwise return error
+            if [[ $force == "1" ]]; then
+                if ! rm -Rf $GOENV_WORKSPACE/$project_name/.goenv/pythonenv; then
+                    echo -e "${RED}Can not remove $GOENV_WORKSPACE/$project_name/.goenv/pythonenv directory!${CLEAN}"
+                    return 1
+                fi
+            else
+                echo -e "${RED}Vitualenv exists. Use ${YELLOW}--force${CLEAN} to recreate it!${CLEAN}"
+                return 1
+            fi
+        fi
+
+        if ! virtualenv --python=${python_bin} $GOENV_WORKSPACE/$project_name/.goenv/pythonenv; then
+            echo -e "${RED}Error while creating virtualenv!${CLEAN}"
+            return 1
+        fi
+    fi
+    
+    # activate project
+    command_use $project_name
+    if [[ $? != 0 ]]; then 
+        return 1
+    fi
+}
+
+backup_environment() {
 	if [[ -z "$GOENV_BACKUP_PWD" ]]; then
 		export GOENV_BACKUP_PWD=`pwd`
+	fi
+
+    if [[ -z "$GOENV_BACKUP_GOBIN" ]]; then
+		export GOENV_BACKUP_GOBIN=$GOBIN
 	fi
 
 	if [[ -z "$GOENV_BACKUP_GOROOT" ]]; then
@@ -122,17 +277,37 @@ backup_env_vars() {
 		export GOENV_BACKUP_PATH=$PATH
 	fi
 
-	if [[ -z "$GOENV_BACKUP_PS1" ]]; then
-		export GOENV_BACKUP_PS1=$PS1
+    if [[ -z "$GOENV_BACKUP_VIRTUAL_ENV_DISABLE_PROMPT" ]]; then
+		export GOENV_BACKUP_VIRTUAL_ENV_DISABLE_PROMPT=$VIRTUAL_ENV_DISABLE_PROMPT
 	fi
+
+    if [[ -z $GOENV_DISABLE_PS1 ]]; then
+        if [[ -z "$GOENV_BACKUP_PS1" ]]; then
+            export GOENV_BACKUP_PS1=$PS1
+        fi
+    fi
 }
 
-restore_env_vars() {
-	echo -e "${GREEN}Przywracam zmienne srodowiskowe${CLEAN}"
+restore_environment() {
+    if [[ -z $GOENV_PROJECT ]]; then
+        return
+    fi
+    # if we are at active virtualenv - deactivate it
+    if [[ ! -z $GOENV_PYTHON_VERSION ]]; then
+        if ! deactivate; then
+            echo -e "${YELLOW}Deactivate virtualenv error!${CLEAN}"
+        fi
+        unset GOENV_PYTHON_VERSION
+    fi
 
 	if [[ ! -z "$GOENV_BACKUP_GOROOT" ]]; then
 		export GOROOT=$GOENV_BACKUP_GOROOT
 		unset GOENV_BACKUP_GOROOT
+	fi
+
+    if [[ ! -z "$GOENV_BACKUP_GOBIN" ]]; then
+		export GOBIN=$GOENV_BACKUP_GOBIN
+		unset GOENV_BACKUP_GOBIN
 	fi
 
 	if [[ ! -z "$GOENV_BACKUP_GOPATH" ]]; then
@@ -145,9 +320,9 @@ restore_env_vars() {
 		unset GOENV_BACKUP_PATH
 	fi
 
-	if [[ ! -z "$GOENV_BACKUP_PS1" ]]; then
-		export PS1=$GOENV_BACKUP_PS1
-		unset GOENV_BACKUP_PS1
+    if [[ ! -z "$GOENV_BACKUP_VIRTUAL_ENV_DISABLE_PROMPT" ]]; then
+		export VIRTUAL_ENV_DISABLE_PROMPT=$GOENV_BACKUP_VIRTUAL_ENV_DISABLE_PROMPT
+		unset GOENV_BACKUP_VIRTUAL_ENV_DISABLE_PROMPT
 	fi
 
 	if [[ ! -z "$GOENV_BACKUP_PWD" ]]; then
@@ -155,279 +330,455 @@ restore_env_vars() {
 		unset GOENV_BACKUP_PWD
 	fi
 
-	unset GOBIN
-	unset GOENV_IN
+    if [[ -z $GOENV_DISABLE_PS1 ]]; then
+        if [[ ! -z "$GOENV_BACKUP_PS1" ]]; then
+            export PS1=$GOENV_BACKUP_PS1
+            unset GOENV_BACKUP_PS1
+        fi
+    fi
+
+	unset GOENV_PROJECT
+    unset GOENV_GO_VERSION
+    unset GOENV_PYTHON_ENV
+    unset GOENV_PYTHON_VERSION
 }
 
-create_venv() {
-	if [ ! -d "$GOENV_WORKSPACE/$1" ]; then
-		mkdir -p "$GOENV_WORKSPACE/$1"
+command_use() {
+    local project_name="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    shift
+    # TODO: extra parameters from init? for example: temporary different go version?
+    if [[ -z $project_name ]]; then 
+        echo -e "${RED}Empty project name!${CLEAN}"
+        return 1
+    fi
 
-		if [ $? != 0 ]; then
-			echo -e "${RED}Nie mozna stworzyc \"$GOENV_WORKSPACE/$1\"${CLEAN}"
-			return
-		fi
+    if [[ ! -d "$GOENV_WORKSPACE/$project_name" ]]; then 
+        echo -e "${RED}Project $project_name not exists!${CLEAN}"
+        return 1
+    fi
 
-		echo -e "${BLUE}Stworzylem folder $GOENV_WORKSPACE/$1 ${CLEAN}"
-	fi
+    restore_environment
+    backup_environment
 
-	use_venv $1 $2
-}
+    export GOENV_PROJECT="$project_name"
 
-use_venv() {
-	if [ ! -d "$GOENV_WORKSPACE/$1" ]; then
-		echo -e "${RED}Folder dla workspace $1 nie istnieje!${CLEAN}"
-		return
-	fi
+    migrate_project_to_2 $project_name
 
-	# domyslnie korzystamy z najnowszej wersji
-	local GO_VER=$GOENV_LATEST_GO
+    # if golang file exists in .goenv - activate it
+    if [[ -d ${GOENV_WORKSPACE}/${project_name}/.goenv && -f ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.version ]]; then
+        local golang_version=`cat ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.version | tr -d ' ' | tr -d '\n'`
+        # TODO: if latest -> check (with duration, for example 1 hour) for new version
+        if ! golang_download_version $golang_version; then
+            return 1
+        fi
+        export GOROOT="${GOENV_DIR}/go/${golang_version}"
+	    export GOPATH="${GOENV_WORKSPACE}/${project_name}"
+        export PATH="${GOROOT}/bin:${GOENV_WORKSPACE}/${project_name}/bin:${GOENV_BACKUP_PATH}"
+        export GOBIN="${GOENV_WORKSPACE}/${project_name}/bin"
+        export GOENV_GO_VERSION="${golang_version}"
+    fi
 
-	# jesli wersja jest zapamietana w pliku to wymuszamy ja
-	if [[ -f ${GOENV_WORKSPACE}/${1}/.go_version ]]; then
-		local GO_VERSION=`cat ${GOENV_WORKSPACE}/${1}/.go_version | tr -d ' ' | tr -d '\n'`
-		if [[ "$GO_VERSION" != "" ]]; then
-			GO_VER=$GO_VERSION
-		fi
-	fi
-
-	# jesli jednak ktos podal ja w parametrze to nadpisujemy ta z pliku
-	if [[ $2 != "" ]]; then
-		GO_VER=$2
-	fi
-
-	if get_go $2 force; then
-		echo -e "${RED}Nie mozna stworzyc \"${1}\" - blad podczas pobierania Go ${GO_VER}${CLEAN}"
-		return
-	fi
-
-	# pobralo sie pomyslnie, wiec wpisujemy ja do pliku
-	echo -e "${YELLOW}Wersja Go dla projektu: ${GO_VER} ${CLEAN}"
-	if [[ $2 != "" ]]; then
-		echo $GO_VER > ${GOENV_WORKSPACE}/${1}/.go_version
-	fi
-
-	backup_env_vars
-
-	local ENTER_DIR="${GOENV_WORKSPACE}/${1}"
-
-	# jesli projekt zainicjowany to wchodzimy bezposrednio do katalogu projektu
-	if [ -f ${GOENV_WORKSPACE}/${1}/.project_name ]; then
-		project_name=`cat ${GOENV_WORKSPACE}/${1}/.project_name | tr -d ' ' | tr -d '\n'`
-		if [ project_name == "" ]; then
-			echo -e "${RED}Plik ${GOENV_WORKSPACE}/${1}/.project_name JEST PUSTY - nie powinno sie zdarzyc! ${CLEAN}"
-		fi
-
-		ENTER_DIR="${GOENV_WORKSPACE}/${1}/src/${project_name}"
-	fi
-
-	cd "${ENTER_DIR}"
+    if [[ -d $GOENV_WORKSPACE/$project_name/.goenv/pythonenv ]]; then
+        # exception: if VIRTUAL_ENV exists and GOENV_PYTHON_ENV is not set (someone activated external virtualenv) - do not activate
+        if [[ ! -z $VIRTUAL_ENV && -z $GOENV_PYTHON_VERSION ]]; then
+            echo -e "${YELLOW}External virtualenv activated - I'm using it! ${GREEN}$VIRTUAL_ENV${CLEAN}"
+        else
+            export VIRTUAL_ENV_DISABLE_PROMPT=1
+            if ! source $GOENV_WORKSPACE/$project_name/.goenv/pythonenv/bin/activate; then
+                echo -e "${RED}Can not activate virtualenv for Python!${CLEAN}"
+                return 1
+            fi
+            export GOENV_PYTHON_VERSION=`$GOENV_WORKSPACE/$project_name/.goenv/pythonenv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`
+        fi
+    fi
+    
+    local enter_dir=${GOENV_WORKSPACE}/${project_name}
+    if [[ -f ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default ]]; then
+        local enter_dir_overwrite=`cat ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default | tr -d ' ' | tr -d '\n'`
+        if [[ ! -z $enter_dir_overwrite && -d "${GOENV_WORKSPACE}/${project_name}/$enter_dir_overwrite" ]]; then
+            enter_dir="${GOENV_WORKSPACE}/${project_name}/$enter_dir_overwrite"
+        fi
+    fi
+    cd "${enter_dir}"
 	if [ $? != 0 ]; then
-		echo -e "${RED}Nie moge wejsc do katalogu \"${GOENV_WORKSPACE}/${1}\"${CLEAN}"
+		echo -e "${RED}Can not enter ${enter_dir}${CLEAN}"
 		return
 	fi
 
-	echo -e "${GREEN}Wchodze do katalogu \"${GOENV_WORKSPACE}/${1}\"${CLEAN}"
-
-	# a bo ja chce miec sffuj PS1!:P
-	# np w `~/.bashrc` jak ktos nie lubi kolorkow, dlugich form, i czuje sie przyzwyczajony do swojego PS1:
-	#   export GOENV_PS1="GO:<name> \u@\h:\W\$ "
-	if [ -z "${GOENV_PS1}" ]
-	then
-		export GOENV_PS1="\[${YELLOW}\](GO:<name>)\[${CLEAN}\] $GOENV_BACKUP_PS1"
-	fi
-
-	export PS1=${GOENV_PS1//<name>/${1}}
-	export GOROOT="${HOME}/.goenv/go/$GO_VER"
-	export GOPATH="$GOENV_WORKSPACE/$1"
-	export PATH="$GOROOT/bin:$GOENV_WORKSPACE/$1/bin:$GOENV_BACKUP_PATH"
-	export GOBIN="$GOENV_WORKSPACE/$1/bin"
-	export GOENV_IN="$1"
+    if [[ -z $GOENV_DISABLE_PS1 ]]; then
+        local prompt="($GOENV_PROJECT"
+        if [[ ! -z "$GOENV_GO_VERSION" ]]; then
+            prompt+=" Go:$GOENV_GO_VERSION"
+        fi
+        if [[ ! -z "$GOENV_PYTHON_VERSION" ]]; then
+            prompt+=" Py:$GOENV_PYTHON_VERSION"
+        fi
+        prompt+=")"
+        export PS1="$prompt $GOENV_BACKUP_PS1"
+    fi
 }
 
-list_venvs() {
-	echo -e "${BLUE}Lista projektow:${CLEAN}"
+command_remove() {
+    local project_name="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    if [[ -z ${project_name} ]]; then 
+        echo -e "${RED}Empty project name!${CLEAN}"
+        return 1
+    fi
+    if [[ ! -d "${GOENV_WORKSPACE}/${project_name}" ]]; then 
+        echo -e "${RED}Source project ${project_name} not exists!${CLEAN}"
+        return 1
+    fi
+    
+    if [[ $GOENV_PROJECT == $project_name ]]; then 
+        restore_environment
+    fi
+    
+    if ! rm -Rf "${GOENV_WORKSPACE}/${project_name}"; then
+        echo -e "${RED}Nie mozna usunac \"$GOENV_WORKSPACE/$1\" !${CLEAN}"
+        return
+    fi
 
-	for DIR in `ls --color=never --time-style="long-iso" -l $GOENV_WORKSPACE | egrep '^d' | awk '{print \$8}' | sed 's/\/$//'`; do
-		local AD1=""
-		if [[ -f $GOENV_WORKSPACE/$DIR/.project_name ]]; then
-			AD1="${CLEAN}(Projekt: ${YELLOW}`cat ${GOENV_WORKSPACE}/$DIR/.project_name | tr -d ' ' | tr -d '\n'`${CLEAN})"
-		fi
+    echo -e "${GREEN}Project ${project_name} removed${CLEAN}"
+}
 
-		local AD2=""
-		if [[ -f $GOENV_WORKSPACE/$DIR/.go_version ]]; then
-			AD2="${CLEAN}(Go ${RED}`cat ${GOENV_WORKSPACE}/$DIR/.go_version | tr -d ' ' | tr -d '\n'`${CLEAN})"
-		else
-			AD2="${CLEAN}(Go ${RED}${GOENV_LATEST_GO}${CLEAN})"
-		fi
+command_rename() {
+    local project_source="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    local project_destination="$(echo $2 | tr '[:upper:]' '[:lower:]')"
+    if [[ -z ${project_source} || -z ${project_destination} ]]; then 
+        echo -e "${RED}Empty project source or destination!${CLEAN}"
+        return 1
+    fi
+    if [[ ! -d "${GOENV_WORKSPACE}/${project_source}" ]]; then 
+        echo -e "${RED}Source project ${project_source} not exists!${CLEAN}"
+        return 1
+    fi
+    if [[ -d "${GOENV_WORKSPACE}/${project_destination}" ]]; then 
+        echo -e "${RED}Destination project ${project_destination} already exists!${CLEAN}"
+        return 1
+    fi
+    mv ${GOENV_WORKSPACE}/${project_source} ${GOENV_WORKSPACE}/${project_destination}
+	if [ $? != 0 ]; then
+		echo -e "${RED}Rename project ${project_source} -> ${project_destination} failed${CLEAN}"
+		return 1
+	fi
+    if [[ $GOENV_PROJECT == ${project_source} ]]; then
+        # activate project
+        command_use $project_destination
+        if [[ $? != 0 ]]; then 
+            echo -e "${RED}Error while entering to ${project_destination}${CLEAN}"
+            return 1
+        fi
+    fi
+}
 
-		echo -e "   ${GREEN}${DIR} ${AD1} ${AD2}${CLEAN}"
+command_create() {
+    local project_name="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    shift
+    if [[ -z $project_name ]]; then 
+        echo -e "${RED}Empty project name!${CLEAN}"
+        return 1
+    fi
+
+    # create dir for project
+    if [[ -d "$GOENV_WORKSPACE/$project_name" ]]; then 
+        echo -e "${RED}Project $project_name already exists!${CLEAN}"
+        return 1
+    fi
+    
+    if ! mkdir -p "$GOENV_WORKSPACE/$project_name"; then 
+        echo -e "${RED}Can not create directory: $GOENV_WORKSPACE/$project_name${CLEAN}"
+        return 1
+    fi
+
+    echo -e "Directory $GOENV_WORKSPACE/$project_name created"
+
+    # init project
+    command_init $project_name $@
+    if [[ $? != 0 ]]; then 
+        return 1
+    fi
+}
+
+GOLANG_LATEST_VERSION=""
+
+migrate_project_to_2() {
+    local project_name="$(echo $1 | tr '[:upper:]' '[:lower:]')"
+    # migration from old goenv: .project_name: github.com/a/b
+    # if .golang file not exists -> use latest
+    if [[ -f ${GOENV_WORKSPACE}/${project_name}/.project_name && ! -f ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default ]]; then
+		local dir_path=`cat ${GOENV_WORKSPACE}/${project_name}/.project_name | tr -d ' ' | tr -d '\n'`
+        if [[ ! -z $dir_path && -d "${GOENV_WORKSPACE}/${project_name}/src/${dir_path}" ]]; then
+            if [[ ! -d ${GOENV_WORKSPACE}/${project_name}/.goenv ]]; then
+                if ! mkdir ${GOENV_WORKSPACE}/${project_name}/.goenv; then
+                    echo -e "${RED}Can not create ${GOENV_WORKSPACE}/${project_name}/.goenv directory!${CLEAN}"
+                    return 1
+                fi
+            fi
+            if ! echo "src/${dir_path}" > ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default; then
+                echo -e "${RED}Can not save new default directory to ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default!${CLEAN}"
+                return 1
+            fi
+            if [[ -z $GOLANG_LATEST_VERSION ]]; then
+                GOLANG_LATEST_VERSION=`golang_get_latest_version`
+                if [[ $? != 0 ]]; then 
+                    return 1
+                fi
+                if ! echo "$GOLANG_LATEST_VERSION" > $GOENV_WORKSPACE/$project_name/.goenv/golang.version; then 
+                    echo -e "${YELLOW}Can not create write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
+                fi
+            fi
+        fi
+        if ! rm ${GOENV_WORKSPACE}/${project_name}/.project_name; then
+            echo -e "${RED}Can not remove old file: ${GOENV_WORKSPACE}/${project_name}/.project_name!${CLEAN}"
+            return 1
+        fi
+    fi
+}
+
+command_list() {
+    echo -e "${BLUE}Project list:${CLEAN}"
+    local project_list=`ls --color=never --time-style="long-iso" -l ${GOENV_WORKSPACE} | egrep '^d' | awk '{print \$8}' | sed 's/\/$//'`
+    local max_length=1
+	for project_name in $project_list; do
+        # echo "$project_name has ${#project_name} len"
+        [ ${#project_name} -gt ${max_length} ] && max_length=${#project_name}
+    done
+    # echo "max = $max_length"
+	for project_name in $project_list; do
+        migrate_project_to_2 $project_name
+        local info=""
+        if [[ -d $GOENV_WORKSPACE/${project_name}/.goenv ]]; then
+            local elements=()
+            # get golang version
+            if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/golang.version ]]; then
+                elements=("${elements[@]}" "Go: ${YELLOW}`cat $GOENV_WORKSPACE/${project_name}/.goenv/golang.version | tr -d ' ' | tr -d '\n'`${CLEAN}")
+            fi
+
+            #get python version
+            if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/pythonenv/bin/python ]]; then
+                elements=("${elements[@]}" "Python: ${YELLOW}`$GOENV_WORKSPACE/${project_name}/.goenv/pythonenv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`${CLEAN}")
+            fi
+
+            # get default directory
+            if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/directory.default ]]; then
+                local directory=`cat $GOENV_WORKSPACE/${project_name}/.goenv/directory.default | tr -d ' ' | tr -d '\n'`
+                directory=${directory#"src/"}
+                elements=("${elements[@]}" "Dir: ${YELLOW}$directory${CLEAN}")
+            fi
+            
+            info=${elements[@]}
+            if [[ ! -z $info ]]; then
+                local project_name_len=${#project_name}
+                local spaces_num=$((max_length-project_name_len+1))
+                local spaces=""
+                for i in $(seq 1 $spaces_num); do spaces+=' '; done
+                info="${spaces}(${info})"
+            fi
+        fi
+		echo -e "    ${GREEN}${project_name}${CLEAN}${info}"
 	done
 }
 
-remove_venv() {
-	for DIR in `ls --color=never --time-style="long-iso" -l $GOENV_WORKSPACE | egrep '^d' | awk '{print \$8}' | sed 's/\/$//'`; do
-		if [ "$1" == "$DIR" ]; then
-			if [ "$GOENV_IN" == "$1" ]; then
-				restore_env_vars
-			fi
-
-			rm -Rf "$GOENV_WORKSPACE/$1"
-
-			if [ $? != 0 ]; then
-				echo -e "${RED}Nie mozna usunac \"$GOENV_WORKSPACE/$1\" !${CLEAN}"
-				return
-			fi
-
-			echo -e "${GREEN}Usunalem virtualenva $1${CLEAN}"
-
-			return
-		fi
-	done
-
-	echo -e "${RED}Virtualenv \"$1\" nie istnieje...${CLEAN}"
+command_golang_list() {
+    # listing of available versions of Go
+    local versions=$(git ls-remote -t https://go.googlesource.com/go | awk -F/ '{ print $NF }' | grep -v weekly | grep -v release | sort --version-sort | tail -n 50)
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}Failed to get version list${CLEAN}"
+        return 1
+    fi
+    local golang_latest_version=`golang_get_latest_version`
+    if [[ $? != 0 ]]; then 
+        echo -e "${RED}Failed to get latest version${CLEAN}"
+        return 1
+    fi
+    local project_version=""
+    if [[ ! -z $GOENV_PROJECT ]]; then
+        if [[ -f $GOENV_WORKSPACE/${GOENV_PROJECT}/.goenv/golang.version ]]; then
+            project_version=`cat $GOENV_WORKSPACE/${GOENV_PROJECT}/.goenv/golang.version | tr -d ' ' | tr -d '\n'`
+        fi
+    fi
+    for version in $versions; do
+        local elements=()
+        if [[ $version == "go${golang_latest_version}" ]]; then
+            elements=("${elements[@]}" "[${GREEN}LATEST STABLE${CLEAN}]")
+        fi
+        if [[ $version == "go${project_version}" ]]; then
+            elements=("${elements[@]}" "[${RED}USED${CLEAN}]")
+        fi
+        
+        local info=${elements[@]}
+        echo -e "${YELLOW}$version${CLEAN}\t\t$info"
+    done
+    return
 }
 
-install_util() {
-	if [[ -z "$GOENV_IN" ]]; then
-		echo -e "${YELLOW}Musisz byc w aktywnym virtualenvie!${CLEAN}"
-	else
-		case "$1" in
-			"govendor")
-				go get -v -u github.com/kardianos/govendor;;
-			"testify")
-				govendor fetch github.com/stretchr/testify/require;;
-			"errors")
-				govendor fetch github.com/pkg/errors;;
-			"mockery")
-				govendor fetch -v github.com/stretchr/testify/mock
-				go get -v -u github.com/vektra/mockery/mockery github.com/vektra/mockery/cmd/mockery;;
-			*)
-				echo "Wybierz tool: govendor, testify, errors, mockery"
-				;;
-		esac
-	fi
+command_golang_init() {
+    local url=""
+    local path=""
+    local char="/"
+    local input_url=$1
+    shift
+    if [[ ${input_url} == "https://github.com"* ]]; then
+        url=${input_url}
+        path=`echo ${input_url} | sed -e "s/^https:\/\///" -e "s/\.git$//"`
+        echo "URL! ${url} ${path}"
+    elif [[ ${input_url} == "git@github.com:"* ]];then
+        url=${input_url}
+        path=`echo ${input_url} | sed -e "s/^git@//" -e "s/\.git$//"`
+        path=${path/://}
+        echo "SSH! ${url} ${path}"
+    elif [[ `echo "${input_url}" | awk -F"${char}" '{print NF-1}'` == "1" ]]; then
+        if [[ $1 == "--ssh" ]]; then
+            url="https://github.com/${input_url}.git"
+        else
+            url="git@github.com/${input_url}.git"
+        fi
+        path="github.com/${input_url}"
+    else
+        echo -e "${RED}Invalid input!${CLEAN}"
+        return 1
+    fi
+
+    echo "git clone ${url} src/${path}"
+    if git clone ${url} ${GOENV_WORKSPACE}/${GOENV_PROJECT}/src/${path}; then
+        if ! echo "src/${path}" > ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv/directory.default; then
+            echo -e "${RED}Failed to set default directory${CLEAN}"
+            return 1
+        fi
+    else
+        echo -e "${RED}Failed to clone repository${CLEAN}"
+        return 1
+    fi
 }
 
-init_project() {
-	if [[ -z "$GOENV_IN" ]]; then
-		echo -e "${YELLOW}Musisz byc w aktywnym virtualenvie!${CLEAN}"
-	else
-		echo -e "${BLUE}Pobieram zrodla dla ${1} do katalogu ${2}: ${CLEAN}"
-
-		local url
-		local path
-		char="/"
-		if [[ ${1} == "https://github.com"* ]]; then
-			url=${1}
-			path=`echo ${1} | sed -e "s/^https:\/\///" -e "s/\.git$//"`
-			echo "URL! ${url} ${path}"
-		elif [[ ${1} == "git@github.com:"* ]];then
-			# git@github.com:cloud-pi/golock.git
-			url=${1}
-			path=`echo ${1} | sed -e "s/^git@//" -e "s/\.git$//"`
-			path=${path/://}
-			echo "SSH! ${url} ${path}"
-		elif [[ `echo "${1}" | awk -F"${char}" '{print NF-1}'` == "1" ]]; then
-			url="https://github.com/${1}.git"
-			path="github.com/${1}"
-		fi
-
-		echo "git clone ${url} src/${path}"
-		git clone ${url} ${GOENV_WORKSPACE}/${GOENV_IN}/src/${path}
-		clone_result=$?
-		if [ $clone_result -eq 0 ]; then
-			echo -e "${GREEN}Pobralem zrodla dla ${path} ${CLEAN}"
-			echo $path > ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name
-			echo
-			use_deps $path
-		fi
-	fi
-}
-
-use_deps() {
-	if [ -f ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name ]; then
-		project_name=`cat ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name | tr -d ' ' | tr -d '\n'`
-		if [ project_name == "" ]; then
-			echo -e "${RED}Plik ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name JEST PUSTY - nie powinno sie zdarzyc! ${CLEAN}"
-		fi
-
-		project_dir="${GOENV_WORKSPACE}/${GOENV_IN}/src/${project_name}"
-		cd ${project_dir}
-		if [ $? != 0 ]; then
-			echo -e "${RED}Nie mozna wejsc do katalogu \"${project_dir}\"${CLEAN}"
-			return
-		fi
-	else
-	   echo -e "${RED}Plik ${GOENV_WORKSPACE}/${GOENV_IN}/.project_name NIE ISTNIEJE - nie powinno sie zdarzyc! ${CLEAN}"
-	fi
-}
-
-rename_venv() {
-	restore_env_vars
-	# czy NIE istnieje pierwszy
-	if [ ! -d "$GOENV_WORKSPACE/$1" ]; then
-		echo -e "${RED}Folder dla zrodlowego workspace '$1' nie istnieje!${CLEAN}"
-		return
-	fi
-
-	# czy istnieje drugi
-	if [ -d "$GOENV_WORKSPACE/$2" ]; then
-		echo -e "${RED}Folder dla docelowego workspace '$2' istnieje!${CLEAN}"
-		return
-	fi
-
-	echo -e "${BLUE}Zmieniam nazwe workspace '${1}' -> '${2}'"
-	mv $GOENV_WORKSPACE/$1 $GOENV_WORKSPACE/$2
-	if [ $? != 0 ]; then
-		echo -e "${RED}Blad podczas zmiany nazwy workspace '${1}' -> '${2}'${CLEAN}"
-		return
-	fi
-	echo -e "${GREEN}Zmieniono nazwe workspace '${1}' -> '${2}'"
-}
-
-if [[ -z "$GOENV_WORKSPACE" ]]; then
-	echo -e "${RED}Zmienna GOENV_WORKSPACE nie jest ustawiona. Przyklad: export GOENV_WORKSPACE=~/goworkspace (dodaj do .bashrc !)${CLEAN}"
-else
-	case "$1" in
-		"getgo")
-			get_go "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
+command_golang() {
+    case "$1" in
+		"list")
+			command_golang_list
 			;;
-		"create")
-			create_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
-			;;
-		"use")
-			use_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
-			;;
-		"rename")
-			rename_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')" "$(echo $3 | tr '[:upper:]' '[:lower:]')"
-			;;
-		"exit")
-			restore_env_vars
-			;;
-		"version")
-			version
-			;;
-		"ls" | "list")
-			list_venvs
-			;;
-		"remove" | "rm")
-			remove_venv "$(echo $2 | tr '[:upper:]' '[:lower:]')"
-			;;
-		"init")
-			init_project $2
-			;;
-		"util")
-			install_util $2
-			;;
-		"envs")
-			echo `ls $GOENV_WORKSPACE`
-			;;
+        "init")
+            if [[ ! -z $GOENV_PROJECT ]]; then
+            shift
+                command_golang_init $@
+            else
+                echo -e "${RED}You must be in active project with !${CLEAN}"
+            fi
+            ;;
 		"commands")
-			echo "getgo create use rename exit version ls list remove rm init util"
+			echo "list init"
 			;;
 		*)
-			show_help
+			print_usage
 			;;
 	esac
+}
+
+command_set() {
+    for param in "$@"; do
+        case $param in
+            --directory=*|--dir=*)
+                local directory="${param#*=}"
+                if [[ -z $directory ]]; then
+                    # remove default directory
+                    if [[ -f ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv/directory.default ]]; then
+                        if ! rm ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv/directory.default; then
+                            echo -e "${RED}Failed to remove ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv/directory.default${CLEAN}"
+                            return 1
+                        fi
+                        echo "${GREEN}Default directory cleared${CLEAN}"
+                    fi
+                else
+                    link=`readlink -e ${GOENV_WORKSPACE}/${GOENV_PROJECT}/${directory}`
+                    if [[ ! -d `readlink -e ${GOENV_WORKSPACE}/${GOENV_PROJECT}/${directory}` ]]; then
+                        echo -e "${RED}Directory does not exists!${CLEAN}"
+                        return 1
+                    fi
+                    if [[ ! -d ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv ]]; then
+                        if ! mkdir ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv; then
+                            echo -e "${RED}Failed to create ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv directory${CLEAN}"
+                            return 1
+                        fi
+                    fi
+                    if ! echo "${directory}" > ${GOENV_WORKSPACE}/${GOENV_PROJECT}/.goenv/directory.default; then
+                        echo -e "${RED}Failed to set default directory${CLEAN}"
+                        return 1
+                    fi
+                    echo "${GREEN}New default directory added${CLEAN}"
+                fi
+                ;;
+            *)
+                echo "${RED}Unknown command or missing parameter${CLEAN}"
+                ;;
+        esac
+    done
+}
+
+if [[ $0 == "$BASH_SOURCE" ]]; then
+    echo -e "${RED}Script is running without access to shell!${CLEAN}"
+    echo -e "Add to your ~/.bashrc line:"
+    echo -e "${YELLOW}alias goenv='. /path/to/goenv'${CLEAN}"
+    if [[ $1 == "help" ]]; then
+        echo -e ""
+        print_usage "1"
+    else
+        echo -e ""
+        echo -e "Type ${RED}help${CLEAN} command to more information"
+    fi
+else
+    if [[ -z "$GOENV_WORKSPACE" ]]; then
+        echo -e "${RED}Environment variable GOENV_WORKSPACE is not set. Please add the following line to your .bashrc:${CLEAN}"
+        echo -e "export GOENV_WORKSPACE=~/my_workspace"
+    else
+        command=$1
+        shift
+        case "$command" in
+            "help")
+                print_usage "1"
+                ;;
+            "ls" | "list")
+                command_list
+                ;;
+            "create")
+                command_create $@
+                ;;
+            "rename")
+                command_rename $@
+                ;;
+            "rm" | "remove")
+                command_remove $@
+                ;;
+            "use")
+                command_use $@
+                ;;
+            "exit")
+                restore_environment
+                ;;
+            "init")
+                if [[ ! -z $GOENV_PROJECT ]]; then
+                    command_init $GOENV_PROJECT $@
+                else
+                    echo -e "${RED}You must be in active project!${CLEAN}"
+                fi
+                ;;
+            "set")
+                if [[ ! -z $GOENV_PROJECT ]]; then
+                    command_set $@
+                else
+                    echo -e "${RED}You must be in active project!${CLEAN}"
+                fi
+                ;;
+            "golang")
+                command_golang $@
+                ;;
+            "envs")
+                echo `ls $GOENV_WORKSPACE`
+                ;;
+            "commands")
+                echo "getgo create use rename exit ls list remove init util"
+                ;;
+            *)
+                print_usage
+                ;;
+        esac
+    fi
 fi
