@@ -1,5 +1,7 @@
 #!/bin/bash
 
+VERSION="2.0.0"
+
 BLUE="$(tput setaf 4)"
 GREEN="$(tput setaf 2)"
 RED="$(tput setaf 1)"
@@ -14,8 +16,7 @@ DEFAULT_PYTHON_VERSION="3"
 DEFAULT_GOLANG_VERSION="latest"
 
 print_version() {
-    local version="1.0.0"
-    echo -e "GoENV version: ${GREEN}${version}${CLEAN}"
+    echo -e "GoENV version: ${GREEN}${VERSION}${CLEAN}"
 }
 
 print_usage() {
@@ -428,17 +429,21 @@ command_remove() {
         echo -e "${RED}Source project ${project_name} not exists!${CLEAN}"
         return 1
     fi
-    
-    if [[ $GOENV_PROJECT == $project_name ]]; then 
-        restore_environment
-    fi
-    
-    if ! rm -Rf "${GOENV_WORKSPACE}/${project_name}"; then
-        echo -e "${RED}Nie mozna usunac \"$GOENV_WORKSPACE/$1\" !${CLEAN}"
-        return
-    fi
 
-    echo -e "${GREEN}Project ${project_name} removed${CLEAN}"
+    read -r -p "Are you sure? [y/N] " response
+    case "$response" in
+        [yY][eE][sS]|[yY])
+            if [[ $GOENV_PROJECT == $project_name ]]; then 
+                restore_environment
+            fi
+            
+            if ! rm -Rf "${GOENV_WORKSPACE}/${project_name}"; then
+                echo -e "${RED}Nie mozna usunac \"$GOENV_WORKSPACE/$1\" !${CLEAN}"
+                return
+            fi
+            echo -e "${GREEN}Project ${project_name} removed${CLEAN}"
+            ;;
+    esac
 }
 
 command_rename() {
@@ -774,7 +779,7 @@ else
                 echo `ls $GOENV_WORKSPACE`
                 ;;
             "commands")
-                echo "getgo create use rename exit ls list remove init util"
+                echo "help ls list create rename rm remove use exit init set golang"
                 ;;
             *)
                 print_usage

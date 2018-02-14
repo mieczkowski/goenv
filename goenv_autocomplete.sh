@@ -18,4 +18,3 @@ _goenv_complete()
 }
 
 complete -F _goenv_complete goenv
-
