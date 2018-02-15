@@ -634,9 +634,9 @@ command_golang_init() {
         echo "SSH! ${url} ${path}"
     elif [[ `echo "${input_url}" | awk -F"${char}" '{print NF-1}'` == "1" ]]; then
         if [[ $1 == "--ssh" ]]; then
-            url="https://github.com/${input_url}.git"
+            url="git@github.com:${input_url}.git"
         else
-            url="git@github.com/${input_url}.git"
+            url="https://github.com/${input_url}.git"
         fi
         path="github.com/${input_url}"
     else
