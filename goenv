@@ -528,9 +528,9 @@ migrate_project_to_2() {
                 if [[ $? != 0 ]]; then 
                     return 1
                 fi
-                if ! echo "$GOLANG_LATEST_VERSION" > $GOENV_WORKSPACE/$project_name/.goenv/golang.version; then 
-                    echo -e "${YELLOW}Can not create write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
-                fi
+            fi
+            if ! echo "$GOLANG_LATEST_VERSION" > $GOENV_WORKSPACE/$project_name/.goenv/golang.version; then 
+                echo -e "${YELLOW}Can not create write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
             fi
         fi
         if ! rm ${GOENV_WORKSPACE}/${project_name}/.project_name; then
