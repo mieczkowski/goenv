@@ -16,6 +16,7 @@ set_prompt(){
    local fancyx='\342\234\227'
    # unicode "✓"
    local checkmark='\342\234\223'
+   
    # Line 1: Full date + full time (24h)
    PS1="\n\[$txtbold\]\[$txtyellow\]\D{%H:%M:%S} "
    if [[ $last_cmd == 0 ]]; then
@@ -34,10 +35,16 @@ set_prompt(){
    PS1+="\u@\h \[$txtblue\]$PWD"
    # git branch
    PS1+="\[$txtgreen\]$(__git_ps1 ' (%s)')\n"
-   
-   # if in goenv - put it in new line
-   if [ ! -z "$GOENV_IN" ]; then
-      PS1+="\[$txtreset\]\[$txtyellow\](GO:$GOENV_IN) \[$txtbold\]"
+
+   if [[ ! -z "$GOENV_PROJECT" ]]; then
+        PS1+="\[$txtreset\]\[$txtyellow\]($GOENV_PROJECT"
+        if [[ ! -z "$GOENV_GO_VERSION" ]]; then
+            PS1+=" Go:$GOENV_GO_VERSION"
+        fi
+        if [[ ! -z "$GOENV_PYTHON_VERSION" ]]; then
+            PS1+=" Py:$GOENV_PYTHON_VERSION"
+        fi
+        PS1+=") \[$txtbold\]"
    fi
 
    # $ for user, # for root
