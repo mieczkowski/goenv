@@ -62,6 +62,10 @@ Project list:
     my_project                      (Go: 1.10 Dir: github.com/mieczkowski/goenv)
     prometheus_client               (Go: 1.9.4 Dir: github.com/prometheus/client_golang)
     python                          (Python: 3.5.2)
+
+(my_project Go:1.10) $ goenv use prometheus_client
+(prometheus_client Go:1.9.4) $ pwd
+/home/mieczkowski/projects/prometheus_client/src/github.com/prometheus/client_golang
 ```
 
 
@@ -85,6 +89,12 @@ echo "alias goenv=\". /home/YOU/goenv/goenv\"" >> ~/.bashrc
 
 ```bash
 echo "export GOENV_WORKSPACE=/home/YOU/my_projects" >> ~/.bashrc
+```
+
+4. Add autocomplete:
+
+```bash
+echo "source /home/YOU/goenv/goenv_autocomplete.sh" >> ~/.bashrc
 ```
 
 ## Custom PS1 prompt
