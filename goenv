@@ -654,6 +654,12 @@ command_golang_init() {
         echo -e "${RED}Failed to clone repository${CLEAN}"
         return 1
     fi
+    
+    # activate project
+    command_use $GOENV_PROJECT
+    if [[ $? != 0 ]]; then 
+        return 1
+    fi
 }
 
 command_golang() {
