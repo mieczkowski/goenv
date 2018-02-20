@@ -115,7 +115,58 @@ $GOENV_GO_VERSION      golang version (if used in project)
 $GOENV_PYTHON_VERSION  python version (if used in project)
 ```
 
+Example part of `PROMPT_COMMAND` usage (more advanced example in file: `.bashrc_prompt`)
+
+```bash
+set_prompt(){
+    PS1=""
+    if [[ ! -z "$GOENV_PROJECT" ]]; then
+        PS1+="($GOENV_PROJECT"
+        if [[ ! -z "$GOENV_GO_VERSION" ]]; then
+            PS1+=" Go:$GOENV_GO_VERSION"
+        fi
+        if [[ ! -z "$GOENV_PYTHON_VERSION" ]]; then
+            PS1+=" Py:$GOENV_PYTHON_VERSION"
+        fi
+        PS1+=") "
+    fi
+    PS1+="(\d \t) (\u@\h:\w) "
+}
+PROMPT_COMMAND='set_prompt'
+```
+
 # Usage
+
+```bash
+create [project_name] {params} create new project and (optional) init lang support:
+                                --golang[=version]  fetch/use go (default: latest stable)
+                                --python[=version]  create virtualenv with specific python version (default: 3)
+                                --force             for recreate existing python virtualenv
+
+use [project_name]             activate project (activate virtualenv and/or set environment variables)
+
+set {options}                  set various settings for project:
+                                --directory[=relative/path/to/dir]  default directory to enter after activation (empty to clear) 
+                                    example: --directory="src/github.com/mieczkowski/goenv")
+
+init {init_params}             add lang support in project, or change version (params from create command)
+exit                           deactivate project
+
+ls                             list projects
+rename [source] [destination]  rename project
+rm [project_name]              deactivate project and remove it
+
+golang                         tools for golang (list available Go versions, install common software)
+                                list          list available golang versions (can be used with --golang in create/init command)
+                                init [param]  clone/fetch repository and put it to right directory. Param can be in one of three formats:
+                                    https://github.com/mieczkowski/goenv.git - git clone with http
+                                    git@github.com:mieczkowski/goenv.git     - git clone with ssh
+                                    mieczkowski/goenv                        - clone from github (http by default, --ssh to force ssh)
+                                
+
+version                        print the goenv version number
+help                           print extended help help
+```
 
 # TODO
 
