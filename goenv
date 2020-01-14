@@ -361,8 +361,6 @@ command_use() {
 
     export GOENV_PROJECT="$project_name"
 
-    migrate_project_to_2 $project_name
-
     # if golang file exists in .goenv - activate it
     if [[ -d ${GOENV_WORKSPACE}/${project_name}/.goenv && -f ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.version ]]; then
         local golang_version=`cat ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.version | tr -d ' ' | tr -d '\n'`
