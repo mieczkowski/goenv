@@ -163,8 +163,8 @@ command_init() {
     local golang_enable=""
     local golang_version=""
     local python_enable=""
-    local python_version=""
     local force=""
+    local no_gomod="0"
     for param in "$@"; do
         case $param in
             --golang=*|"--golang")
@@ -174,12 +174,9 @@ command_init() {
                 ;;
             --python=*|"--python")
                 python_enable="1"
-                python_version="${param#*=}"
-                [[ $python_version == $param || -z $python_version ]] && python_version=$DEFAULT_PYTHON_VERSION
-                if [[ $python_version != "2" && $python_version != "3" ]]; then
-                    echo -e "${RED}Python version must be 2 or 3!${CLEAN}"
-                    return 1
-                fi
+                ;;
+            "--no-gomod")
+                no_gomod="1"
                 ;;
             "--force")
                 force="1"
@@ -207,8 +204,15 @@ command_init() {
         fi
 
         if ! echo "$golang_version" > $GOENV_WORKSPACE/$project_name/.goenv/golang.version; then 
-            echo -e "${RED}Can not create write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
+            echo -e "${RED}Can not write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
             return 1
+        fi
+
+        if [[ $no_gomod == "1" ]]; then
+            if ! echo "0" > $GOENV_WORKSPACE/$project_name/.goenv/golang.gomod; then
+                echo -e "${RED}Can not write info to $GOENV_WORKSPACE/$project_name/.goenv/golang.gomod file!${CLEAN}"
+                return 1
+            fi
         fi
     fi
 
@@ -219,23 +223,17 @@ command_init() {
                 return 1
             fi
         fi
-        if ! command -v virtualenv >/dev/null 2>&1; then
-            echo -e "${RED}Virtualenv not found!${CLEAN}"
-            echo -e "Install virtualenv (${YELLOW}apt-get install virtualenv${CLEAN}) and init python in activated project: ${YELLOW}goenv init --python${CLEAN}"
-            return 1
-        fi
-        local python_bin="python${python_version}"
-        if ! command -v $python_bin >/dev/null 2>&1; then
-            echo -e "${RED}$python_bin not found!${CLEAN}"
-            echo -e "Install $python_bin (${YELLOW}apt-get install $python_bin${CLEAN}) and init python in activated project: ${YELLOW}goenv init --python=$python_version${CLEAN}"
+        if ! command -v python3 >/dev/null 2>&1; then
+            echo -e "${RED}python3 not found!${CLEAN}"
+            echo -e "Install python3 (${YELLOW}apt-get install python3${CLEAN}) and init python in activated project: ${YELLOW}goenv init --python${CLEAN}"
             return 1
         fi
 
-        if [[ -d $GOENV_WORKSPACE/$project_name/.goenv/pythonenv ]]; then
+        if [[ -d $GOENV_WORKSPACE/$project_name/.venv ]]; then
             # if --force is set -> clear virtualenv and recreate it, otherwise return error
             if [[ $force == "1" ]]; then
-                if ! rm -Rf $GOENV_WORKSPACE/$project_name/.goenv/pythonenv; then
-                    echo -e "${RED}Can not remove $GOENV_WORKSPACE/$project_name/.goenv/pythonenv directory!${CLEAN}"
+                if ! rm -Rf $GOENV_WORKSPACE/$project_name/.venv; then
+                    echo -e "${RED}Can not remove $GOENV_WORKSPACE/$project_name/.venv directory!${CLEAN}"
                     return 1
                 fi
             else
@@ -244,7 +242,7 @@ command_init() {
             fi
         fi
 
-        if ! virtualenv --python=${python_bin} $GOENV_WORKSPACE/$project_name/.goenv/pythonenv; then
+        if ! python3 -m venv $GOENV_WORKSPACE/$project_name/.venv; then
             echo -e "${RED}Error while creating virtualenv!${CLEAN}"
             return 1
         fi
@@ -372,24 +370,34 @@ command_use() {
         if ! golang_download_version $golang_version; then
             return 1
         fi
-        export GOROOT="${GOENV_DIR}/go/${golang_version}"
-	    export GOPATH="${GOENV_WORKSPACE}/${project_name}"
+
+        local ps1_golang_version="${golang_version}"
+        # id gomod is disabled - set GOPATH and GOBIN
+        if [[ -f ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.gomod ]]; then
+            local gomod_enabled=`cat ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.gomod | tr -d ' ' | tr -d '\n'`
+            if [[ $gomod_enabled == "0" ]]; then
+                export GOPATH="${GOENV_WORKSPACE}/${project_name}"
+                export GOBIN="${GOENV_WORKSPACE}/${project_name}/bin"
+                ps1_golang_version="$ps1_golang_version-NOGOMODS"
+            fi
+        fi
+
         export PATH="${GOROOT}/bin:${GOENV_WORKSPACE}/${project_name}/bin:${GOENV_BACKUP_PATH}"
-        export GOBIN="${GOENV_WORKSPACE}/${project_name}/bin"
-        export GOENV_GO_VERSION="${golang_version}"
+        export GOROOT="${GOENV_DIR}/go/${golang_version}"
+        export GOENV_GO_VERSION="${ps1_golang_version}"
     fi
 
-    if [[ -d $GOENV_WORKSPACE/$project_name/.goenv/pythonenv ]]; then
+    if [[ -d $GOENV_WORKSPACE/$project_name/.venv ]]; then
         # exception: if VIRTUAL_ENV exists and GOENV_PYTHON_ENV is not set (someone activated external virtualenv) - do not activate
         if [[ ! -z $VIRTUAL_ENV && -z $GOENV_PYTHON_VERSION ]]; then
             echo -e "${YELLOW}External virtualenv activated - I'm using it! ${GREEN}$VIRTUAL_ENV${CLEAN}"
         else
             export VIRTUAL_ENV_DISABLE_PROMPT=1
-            if ! source $GOENV_WORKSPACE/$project_name/.goenv/pythonenv/bin/activate; then
+            if ! source $GOENV_WORKSPACE/$project_name/.venv/bin/activate; then
                 echo -e "${RED}Can not activate virtualenv for Python!${CLEAN}"
                 return 1
             fi
-            export GOENV_PYTHON_VERSION=`$GOENV_WORKSPACE/$project_name/.goenv/pythonenv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`
+            export GOENV_PYTHON_VERSION=`$GOENV_WORKSPACE/$project_name/.venv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`
         fi
     fi
     
@@ -506,40 +514,6 @@ command_create() {
 
 GOLANG_LATEST_VERSION=""
 
-migrate_project_to_2() {
-    local project_name="$(echo $1 | tr '[:upper:]' '[:lower:]')"
-    # migration from old goenv: .project_name: github.com/a/b
-    # if .golang file not exists -> use latest
-    if [[ -f ${GOENV_WORKSPACE}/${project_name}/.project_name && ! -f ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default ]]; then
-		local dir_path=`cat ${GOENV_WORKSPACE}/${project_name}/.project_name | tr -d ' ' | tr -d '\n'`
-        if [[ ! -z $dir_path && -d "${GOENV_WORKSPACE}/${project_name}/src/${dir_path}" ]]; then
-            if [[ ! -d ${GOENV_WORKSPACE}/${project_name}/.goenv ]]; then
-                if ! mkdir ${GOENV_WORKSPACE}/${project_name}/.goenv; then
-                    echo -e "${RED}Can not create ${GOENV_WORKSPACE}/${project_name}/.goenv directory!${CLEAN}"
-                    return 1
-                fi
-            fi
-            if ! echo "src/${dir_path}" > ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default; then
-                echo -e "${RED}Can not save new default directory to ${GOENV_WORKSPACE}/${project_name}/.goenv/directory.default!${CLEAN}"
-                return 1
-            fi
-            if [[ -z $GOLANG_LATEST_VERSION ]]; then
-                GOLANG_LATEST_VERSION=`golang_get_latest_version`
-                if [[ $? != 0 ]]; then 
-                    return 1
-                fi
-            fi
-            if ! echo "$GOLANG_LATEST_VERSION" > $GOENV_WORKSPACE/$project_name/.goenv/golang.version; then 
-                echo -e "${YELLOW}Can not create write Go version to $GOENV_WORKSPACE/$project_name/.goenv/golang.version file!${CLEAN}"
-            fi
-        fi
-        if ! rm ${GOENV_WORKSPACE}/${project_name}/.project_name; then
-            echo -e "${RED}Can not remove old file: ${GOENV_WORKSPACE}/${project_name}/.project_name!${CLEAN}"
-            return 1
-        fi
-    fi
-}
-
 command_list() {
     echo -e "${BLUE}Project list:${CLEAN}"
     local project_list=`ls --color=never --time-style="long-iso" -l ${GOENV_WORKSPACE} | egrep '^d' | awk '{print \$8}' | sed 's/\/$//'`
@@ -550,35 +524,45 @@ command_list() {
     done
     # echo "max = $max_length"
 	for project_name in $project_list; do
-        migrate_project_to_2 $project_name
         local info=""
-        if [[ -d $GOENV_WORKSPACE/${project_name}/.goenv ]]; then
-            local elements=()
-            # get golang version
-            if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/golang.version ]]; then
-                elements=("${elements[@]}" "Go: ${YELLOW}`cat $GOENV_WORKSPACE/${project_name}/.goenv/golang.version | tr -d ' ' | tr -d '\n'`${CLEAN}")
-            fi
+        local elements=()
 
-            #get python version
-            if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/pythonenv/bin/python ]]; then
-                elements=("${elements[@]}" "Python: ${YELLOW}`$GOENV_WORKSPACE/${project_name}/.goenv/pythonenv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`${CLEAN}")
+        # get golang version
+        if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/golang.version ]]; then
+            local go_version=`cat $GOENV_WORKSPACE/${project_name}/.goenv/golang.version | tr -d ' ' | tr -d '\n'`
+            if [[ -f ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.gomod ]]; then
+                local gomod_enabled=`cat ${GOENV_WORKSPACE}/${project_name}/.goenv/golang.gomod | tr -d ' ' | tr -d '\n'`
+                if [[ $gomod_enabled == "0" ]]; then
+                    go_version="$go_version-NOGOMODS"
+                fi
             fi
+            elements=("${elements[@]}" "Go: ${YELLOW}$go_version${CLEAN}")
+        fi
 
-            # get default directory
-            if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/directory.default ]]; then
-                local directory=`cat $GOENV_WORKSPACE/${project_name}/.goenv/directory.default | tr -d ' ' | tr -d '\n'`
-                directory=${directory#"src/"}
-                elements=("${elements[@]}" "Dir: ${YELLOW}$directory${CLEAN}")
-            fi
-            
-            info=${elements[@]}
-            if [[ ! -z $info ]]; then
-                local project_name_len=${#project_name}
-                local spaces_num=$((max_length-project_name_len+1))
-                local spaces=""
-                for i in $(seq 1 $spaces_num); do spaces+=' '; done
-                info="${spaces}(${info})"
-            fi
+        #get python version
+        #TODO: refactor, detect .venv venv and others options
+        if [[ -f $GOENV_WORKSPACE/${project_name}/.venv/bin/python ]]; then
+            elements=("${elements[@]}" "Python: ${YELLOW}`$GOENV_WORKSPACE/${project_name}/.venv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`${CLEAN}")
+        fi
+
+        if [[ -f $GOENV_WORKSPACE/${project_name}/.venv/bin/python ]]; then
+            elements=("${elements[@]}" "Python: ${YELLOW}`$GOENV_WORKSPACE/${project_name}/.venv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`${CLEAN}")
+        fi
+
+        # get default directory
+        if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/directory.default ]]; then
+            local directory=`cat $GOENV_WORKSPACE/${project_name}/.goenv/directory.default | tr -d ' ' | tr -d '\n'`
+            directory=${directory#"src/"}
+            elements=("${elements[@]}" "Dir: ${YELLOW}$directory${CLEAN}")
+        fi
+        
+        info=${elements[@]}
+        if [[ ! -z $info ]]; then
+            local project_name_len=${#project_name}
+            local spaces_num=$((max_length-project_name_len+1))
+            local spaces=""
+            for i in $(seq 1 $spaces_num); do spaces+=' '; done
+            info="${spaces}(${info})"
         fi
 		echo -e "    ${GREEN}${project_name}${CLEAN}${info}"
 	done
