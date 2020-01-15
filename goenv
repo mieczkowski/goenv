@@ -293,8 +293,8 @@ restore_environment() {
     fi
     # if we are at active virtualenv - deactivate it
     if [[ ! -z $GOENV_PYTHON_VERSION ]]; then
-        if ! deactivate; then
-            echo -e "${YELLOW}Deactivate virtualenv error!${CLEAN}"
+        if command -v deactivate >/dev/null 2>&1; then
+            deactivate
         fi
         unset GOENV_PYTHON_VERSION
     fi
@@ -387,16 +387,16 @@ command_use() {
 
     if [[ -d $GOENV_WORKSPACE/$project_name/.venv ]]; then
         # exception: if VIRTUAL_ENV exists and GOENV_PYTHON_ENV is not set (someone activated external virtualenv) - do not activate
-        if [[ ! -z $VIRTUAL_ENV && -z $GOENV_PYTHON_VERSION ]]; then
-            echo -e "${YELLOW}External virtualenv activated - I'm using it! ${GREEN}$VIRTUAL_ENV${CLEAN}"
-        else
+        # if [[ ! -z $VIRTUAL_ENV && -z $GOENV_PYTHON_VERSION ]]; then
+        #     echo -e "${YELLOW}External virtualenv activated - I'm using it! ${GREEN}$VIRTUAL_ENV${CLEAN}"
+        # else
             export VIRTUAL_ENV_DISABLE_PROMPT=1
             if ! source $GOENV_WORKSPACE/$project_name/.venv/bin/activate; then
                 echo -e "${RED}Can not activate virtualenv for Python!${CLEAN}"
                 return 1
             fi
             export GOENV_PYTHON_VERSION=`$GOENV_WORKSPACE/$project_name/.venv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`
-        fi
+        # fi
     fi
     
     local enter_dir=${GOENV_WORKSPACE}/${project_name}
