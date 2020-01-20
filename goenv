@@ -543,10 +543,6 @@ command_list() {
             elements=("${elements[@]}" "Python: ${YELLOW}`$GOENV_WORKSPACE/${project_name}/.venv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`${CLEAN}")
         fi
 
-        if [[ -f $GOENV_WORKSPACE/${project_name}/.venv/bin/python ]]; then
-            elements=("${elements[@]}" "Python: ${YELLOW}`$GOENV_WORKSPACE/${project_name}/.venv/bin/python --version | perl -pe '($_)=/([0-9]+([.][0-9]+)+)/'`${CLEAN}")
-        fi
-
         # get default directory
         if [[ -f $GOENV_WORKSPACE/${project_name}/.goenv/directory.default ]]; then
             local directory=`cat $GOENV_WORKSPACE/${project_name}/.goenv/directory.default | tr -d ' ' | tr -d '\n'`
